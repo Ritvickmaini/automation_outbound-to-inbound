@@ -142,6 +142,13 @@ def get_column_index(column_name):
     header_row = sheet.row_values(1)
     return header_row.index(column_name) + 1  # 1-based index
 
+def get_col_letter(col_idx):
+    result = ""
+    while col_idx >= 0:
+        result = chr(col_idx % 26 + 65) + result
+        col_idx = col_idx // 26 - 1
+    return result
+  
 def process_batches():
     all_rows = sheet.get_all_values()
     if len(all_rows) < 2:
@@ -212,7 +219,7 @@ def process_batches():
                 })
 
         if status_updates:
-            col_letter = chr(65 + status_col_index)
+            col_letter = get_col_letter(status_col_index)
             data = [{
                 "range": f"{SHEET_TAB}!{col_letter}{row_num}",
                 "values": [[status_text]]
@@ -224,6 +231,7 @@ def process_batches():
                 body={"valueInputOption": "USER_ENTERED", "data": data}
             ).execute()
             print(f"📝 Updated {len(status_updates)} status cells")
+            print(f"✅ Status column updated for rows: {[row_num for row_num, _ in status_updates]}")
 
         if format_requests:
             service = build("sheets", "v4", credentials=creds)
