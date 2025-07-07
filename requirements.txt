@@ -1,0 +1,7 @@
+gspread
+google-auth
+google-auth-oauthlib
+google-api-python-client
+oauth2client
+smtplib3
+email-validator
