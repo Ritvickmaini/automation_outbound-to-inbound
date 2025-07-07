@@ -164,12 +164,13 @@ def process_batches():
         batch_end = min(batch_start + 100, total_rows)
         print(f"\n📦 Processing rows {batch_start + 2} to {batch_end + 1}")
         batch = data_rows[batch_start:batch_end]
+        print(f"🔢 Batch size: {len(batch)}")
 
         status_updates = []
         format_requests = []
 
         for i, row in enumerate(batch, start=batch_start + 2):
-            padded_row = row + [""] * (len(header) - len(row))
+            padded_row = (row + [""] * len(header))[:len(header)]
             row_data = dict(zip(header, padded_row))
 
             response = row_data.get("Email-Response", "").strip().lower()
@@ -179,8 +180,11 @@ def process_batches():
             status = row_data.get("Status", "").strip().lower()
 
             print(f"[{i}] {response} | {email} | {name} | {show}")
+                      if not email:
+                print(f"⚠️ Missing email at row {i}, skipping.")
+                continue
 
-            if response == "interested" and email and status != "email sent":
+            if response == "interested" and status != "email sent":
                 if send_email(email, name, show):
                     status_updates.append((i, "Email Sent"))
 
@@ -195,6 +199,23 @@ def process_batches():
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": ROW_COLOR_ACTION_REQUIRED
+                            }
+                        },
+                        "fields": "userEnteredFormat.backgroundColor"
+                    }
+                })
+
+            elif response == "offer rejected" and status != "offer rejected":
+                format_requests.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": sheet._properties['sheetId'],
+                            "startRowIndex": i - 1,
+                            "endRowIndex": i
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": ROW_COLOR_OFFER_REJECTED
                             }
                         },
                         "fields": "userEnteredFormat.backgroundColor"
