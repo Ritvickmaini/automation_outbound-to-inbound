@@ -180,7 +180,7 @@ def process_batches():
             status = row_data.get("Status", "").strip().lower()
 
             print(f"[{i}] {response} | {email} | {name} | {show}")
-                      if not email:
+            if not email:
                 print(f"⚠️ Missing email at row {i}, skipping.")
                 continue
 
@@ -199,23 +199,6 @@ def process_batches():
                         "cell": {
                             "userEnteredFormat": {
                                 "backgroundColor": ROW_COLOR_ACTION_REQUIRED
-                            }
-                        },
-                        "fields": "userEnteredFormat.backgroundColor"
-                    }
-                })
-
-            elif response == "offer rejected" and status != "offer rejected":
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {
-                            "sheetId": sheet._properties['sheetId'],
-                            "startRowIndex": i - 1,
-                            "endRowIndex": i
-                        },
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": ROW_COLOR_OFFER_REJECTED
                             }
                         },
                         "fields": "userEnteredFormat.backgroundColor"
