@@ -6,6 +6,7 @@ import smtplib
 from email.utils import formataddr
 from googleapiclient.discovery import build
 import time 
+import imaplib
 
 # --- CONFIGURATION ---
 SHEET_NAME = "Expo-Sales-Management"
@@ -84,6 +85,7 @@ HTML_TEMPLATE = """
 # --- FUNCTIONS ---
 def send_email(to_email, name, show):
     try:
+        # Create the email
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"Invitation to Speak at {show}"
         msg["From"] = formataddr(("Nagendra Mishra", EMAIL_SENDER))
@@ -92,13 +94,25 @@ def send_email(to_email, name, show):
         html_content = HTML_TEMPLATE.format(name=name, show=show)
         msg.attach(MIMEText(html_content, "html"))
 
+        # Convert message to full MIME string
+        raw_message = msg.as_string()
+
+        # --- SMTP: Send the email ---
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
             server.starttls()
             server.login(EMAIL_SENDER, EMAIL_PASSWORD)
             server.send_message(msg)
             print(f"✅ Email sent to {name} at {to_email}")
+
+        # --- IMAP: Save to "Sent" folder ---
+        imap = imaplib.IMAP4_SSL("mail.b2bgrowthexpo.com")  # Your IMAP server
+        imap.login(EMAIL_SENDER, EMAIL_PASSWORD)
+        imap.append("INBOX.Sent", "", imaplib.Time2Internaldate(time.time()), raw_message.encode("utf8"))
+        imap.logout()
+        print("📩 Email saved to Sent folder")
+
     except Exception as e:
-        print(f"❌ Failed to send email to {to_email}: {e}")
+        print(f"❌ Failed to send/save email to {to_email}: {e}")
 
 def color_row(row_index, color):
     service = build("sheets", "v4", credentials=creds)
@@ -147,20 +161,7 @@ def process_sheet():
 
         if response == "interested" and email and status != "email sent":
             send_email(email, name, show)
-            # Prepare batch cell update
-            status_updates.append({
-                "range": {
-                    "sheetId": sheet._properties['sheetId'],
-                    "startRowIndex": idx - 1,
-                    "endRowIndex": idx,
-                    "startColumnIndex": status_col_index,
-                    "endColumnIndex": status_col_index + 1
-                },
-                "cell": {
-                    "userEnteredValue": {"stringValue": "Email Sent"}
-                },
-                "fields": "userEnteredValue"
-            })
+            status_updates.append(idx)  # Just row number
 
         elif response == "action required" and status != "action required":
             format_requests.append({
@@ -196,15 +197,22 @@ def process_sheet():
                 }
             })
 
-    # --- Batch update for status ---
+    # --- Batch update for status column values ---
     if status_updates:
+        status_col_letter = chr(65 + status_col_index)
+        data = [{
+            "range": f"{SHEET_TAB}!{status_col_letter}{row_num}",
+            "values": [["Email Sent"]]
+        } for row_num in status_updates]
+
         service = build("sheets", "v4", credentials=creds)
-        service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={
-            "requests": [{"updateCells": update} for update in status_updates]
-        }).execute()
+        service.spreadsheets().values().batchUpdate(
+            spreadsheetId=sheet_id,
+            body={"valueInputOption": "USER_ENTERED", "data": data}
+        ).execute()
         print(f"📝 Batch updated {len(status_updates)} status cells")
 
-    # --- Batch update for coloring ---
+    # --- Batch update for background colors ---
     if format_requests:
         service = build("sheets", "v4", credentials=creds)
         service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={
