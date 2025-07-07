@@ -142,89 +142,106 @@ def get_column_index(column_name):
     header_row = sheet.row_values(1)
     return header_row.index(column_name) + 1  # 1-based index
 
-def process_sheet():
-    rows = sheet.get_all_records()
-    header_row = sheet.row_values(1)
-    status_col_index = header_row.index("Status")  # 0-based index
+def process_batches():
+    all_rows = sheet.get_all_values()
+    if len(all_rows) < 2:
+        print("⚠️ Sheet is empty or only contains headers.")
+        return
 
-    status_updates = []
-    format_requests = []
+    header = all_rows[0]
+    data_rows = all_rows[1:]
+    status_col_index = header.index("Status")  # 0-based
+    total_rows = len(data_rows)
 
-    for idx, row in enumerate(rows, start=2):  # 1-based: data starts at row 2
-        response = row.get("Email-Response", "").strip().lower()
-        email = row.get("Email", "").strip()
-        name = row.get("First_Name", "").strip()
-        show = row.get("Show", "").strip()
-        status = row.get("Status", "").strip().lower()
+    for batch_start in range(0, total_rows, 100):
+        batch_end = min(batch_start + 100, total_rows)
+        print(f"\n📦 Processing rows {batch_start + 2} to {batch_end + 1}")
+        batch = data_rows[batch_start:batch_end]
 
-        print(f"[{idx}] Status: {response} | Email: {email} | Name: {name} | Show: {show}")
+        status_updates = []
+        format_requests = []
 
-        if response == "interested" and email and status != "email sent":
-            send_email(email, name, show)
-            status_updates.append(idx)  # Just row number
+        for i, row in enumerate(batch, start=batch_start + 2):
+            padded_row = row + [""] * (len(header) - len(row))
+            row_data = dict(zip(header, padded_row))
 
-        elif response == "action required" and status != "action required":
-            format_requests.append({
-                "repeatCell": {
-                    "range": {
-                        "sheetId": sheet._properties['sheetId'],
-                        "startRowIndex": idx - 1,
-                        "endRowIndex": idx
-                    },
-                    "cell": {
-                        "userEnteredFormat": {
-                            "backgroundColor": ROW_COLOR_ACTION_REQUIRED
-                        }
-                    },
-                    "fields": "userEnteredFormat.backgroundColor"
-                }
-            })
+            response = row_data.get("Email-Response", "").strip().lower()
+            email = row_data.get("Email", "").strip()
+            name = row_data.get("First_Name", "").strip()
+            show = row_data.get("Show", "").strip()
+            status = row_data.get("Status", "").strip().lower()
 
-        elif response == "offer rejected" and status != "offer rejected":
-            format_requests.append({
-                "repeatCell": {
-                    "range": {
-                        "sheetId": sheet._properties['sheetId'],
-                        "startRowIndex": idx - 1,
-                        "endRowIndex": idx
-                    },
-                    "cell": {
-                        "userEnteredFormat": {
-                            "backgroundColor": ROW_COLOR_OFFER_REJECTED
-                        }
-                    },
-                    "fields": "userEnteredFormat.backgroundColor"
-                }
-            })
+            print(f"[{i}] {response} | {email} | {name} | {show}")
 
-    # --- Batch update for status column values ---
-    if status_updates:
-        status_col_letter = chr(65 + status_col_index)
-        data = [{
-            "range": f"{SHEET_TAB}!{status_col_letter}{row_num}",
-            "values": [["Email Sent"]]
-        } for row_num in status_updates]
+            if response == "interested" and email and status != "email sent":
+                if send_email(email, name, show):
+                    status_updates.append((i, "Email Sent"))
 
-        service = build("sheets", "v4", credentials=creds)
-        service.spreadsheets().values().batchUpdate(
-            spreadsheetId=sheet_id,
-            body={"valueInputOption": "USER_ENTERED", "data": data}
-        ).execute()
-        print(f"📝 Batch updated {len(status_updates)} status cells")
+            elif response == "action required" and status != "action required":
+                format_requests.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": sheet._properties['sheetId'],
+                            "startRowIndex": i - 1,
+                            "endRowIndex": i
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": ROW_COLOR_ACTION_REQUIRED
+                            }
+                        },
+                        "fields": "userEnteredFormat.backgroundColor"
+                    }
+                })
 
-    # --- Batch update for background colors ---
-    if format_requests:
-        service = build("sheets", "v4", credentials=creds)
-        service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={
-            "requests": format_requests
-        }).execute()
-        print(f"🎨 Batch formatted {len(format_requests)} rows")
+            elif response == "offer rejected" and status != "offer rejected":
+                format_requests.append({
+                    "repeatCell": {
+                        "range": {
+                            "sheetId": sheet._properties['sheetId'],
+                            "startRowIndex": i - 1,
+                            "endRowIndex": i
+                        },
+                        "cell": {
+                            "userEnteredFormat": {
+                                "backgroundColor": ROW_COLOR_OFFER_REJECTED
+                            }
+                        },
+                        "fields": "userEnteredFormat.backgroundColor"
+                    }
+                })
 
+        if status_updates:
+            col_letter = chr(65 + status_col_index)
+            data = [{
+                "range": f"{SHEET_TAB}!{col_letter}{row_num}",
+                "values": [[status_text]]
+            } for row_num, status_text in status_updates]
+
+            service = build("sheets", "v4", credentials=creds)
+            service.spreadsheets().values().batchUpdate(
+                spreadsheetId=sheet_id,
+                body={"valueInputOption": "USER_ENTERED", "data": data}
+            ).execute()
+            print(f"📝 Updated {len(status_updates)} status cells")
+
+        if format_requests:
+            service = build("sheets", "v4", credentials=creds)
+            service.spreadsheets().batchUpdate(
+                spreadsheetId=sheet_id,
+                body={"requests": format_requests}
+            ).execute()
+            print(f"🎨 Formatted {len(format_requests)} rows")
+
+        time.sleep(2)  # Prevent rate limit
+
+# --- Replace this in your while loop ---
 while True:
     print("⏳ Starting automation run...")
     try:
-        process_sheet()
-        print("✅ Run complete. Sleeping for 2 hours...\n")
+        process_batches()
+        print("✅ All batches processed. Sleeping for 2 hours...\n")
     except Exception as e:
         print(f"❌ Error during run: {e}")
-    time.sleep(7200)  # Sleep for 2 hours
+    time.sleep(7200)
+
