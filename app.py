@@ -105,11 +105,16 @@ def send_email(to_email, name, show):
             print(f"✅ Email sent to {name} at {to_email}")
 
         # --- IMAP: Save to "Sent" folder ---
-        imap = imaplib.IMAP4_SSL("mail.b2bgrowthexpo.com")  # Your IMAP server
+        imap = imaplib.IMAP4_SSL("mail.b2bgrowthexpo.com")
         imap.login(EMAIL_SENDER, EMAIL_PASSWORD)
         imap.append("INBOX.Sent", "", imaplib.Time2Internaldate(time.time()), raw_message.encode("utf8"))
         imap.logout()
         print("📩 Email saved to Sent folder")
+        return True
+
+    except Exception as e:
+        print(f"❌ Failed to send/save email to {to_email}: {e}")
+        return False
 
     except Exception as e:
         print(f"❌ Failed to send/save email to {to_email}: {e}")
