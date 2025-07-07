@@ -162,7 +162,7 @@ def process_batches():
 
     header = all_rows[0]
     data_rows = all_rows[1:]
-    status_col_index = header.index("Status")  # 0-based
+    status_col_index = header.index("Status")+1  # 0-based
     total_rows = len(data_rows)
 
     for batch_start in range(0, total_rows, 100):
