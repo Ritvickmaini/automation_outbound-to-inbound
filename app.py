@@ -5,17 +5,13 @@ from email.mime.multipart import MIMEMultipart
 import smtplib
 from email.utils import formataddr
 from googleapiclient.discovery import build
-import time 
+from datetime import datetime, timedelta
+import time
 import imaplib
 
 # --- CONFIGURATION ---
 SHEET_NAME = "Expo-Sales-Management"
 SHEET_TAB = "OB-speakers"
-STATUS_COL_NAME = "Status"  # Add this column in the Sheet
-ROW_COLOR_ACTION_REQUIRED = {"red": 0.29, "green": 0.53, "blue": 0.91}  # Blue
-ROW_COLOR_OFFER_REJECTED = {"red": 1.0, "green": 0.0, "blue": 0.0}
-
-# --- GOOGLE SHEETS SETUP ---
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 CREDS_FILE = "/etc/secrets/service_account.json"
 creds = Credentials.from_service_account_file(CREDS_FILE, scopes=SCOPES)
@@ -23,105 +19,72 @@ gc = gspread.authorize(creds)
 sheet = gc.open(SHEET_NAME).worksheet(SHEET_TAB)
 sheet_id = sheet.spreadsheet.id
 
-# --- EMAIL CONFIG ---
 SMTP_SERVER = "mail.b2bgrowthexpo.com"
 SMTP_PORT = 587
 EMAIL_SENDER = "speakersengagement@b2bgrowthexpo.com"
 EMAIL_PASSWORD = "jH!Ra[9q[f68"
 
-# --- HTML TEMPLATE ---
-HTML_TEMPLATE = """
-<html>
-  <body style="font-family: Arial, sans-serif; font-size: 15px; color: #333; background-color: #ffffff; padding: 20px;">
-    <p>Dear {name},</p>
-    <p>
-      I hope this message finds you well.<br><br>
-      Thank you for showing interest in speaking at our upcoming <strong>{show}</strong>.
-      This exciting event will bring together industry leaders, innovators, and professionals 
-      for a day of connection, collaboration, and the exchange of valuable insights.
-      We would be honoured to welcome you as one of our speakers.
-    </p>
-    <p>
-      While this is an unpaid opportunity, speaking at the Expo offers several key benefits:
-    </p>
-    <ul>
-      <li>Increased visibility and recognition within your industry</li>
-      <li>Opportunities to expand your professional network</li>
-      <li>A platform to showcase your expertise to a diverse and engaged audience</li>
-    </ul>
-    <p>
-      Our previous events have drawn a dynamic mix of participants, including startup founders, 
-      SME owners, corporate executives, and other influential figures from across various sectors—
-      ensuring a high-quality audience for your session.
-    </p>
-    <p>
-      If you are interested, please let us know your availability at your earliest convenience 
-      so we can reserve your speaking slot and discuss any specific needs you may have.
-    </p>
-    <p>
-      Thank you for considering this invitation. I look forward to the possibility of working with you 
-      and hope to welcome you as a valued speaker at the {show}.
-    </p>
-    <p>
-      If you would like to schedule a meeting with me,<br>
-      please use the link below:<br>
-      <a href="https://tidycal.com/nagendra/b2b-discovery-call" target="_blank">https://tidycal.com/nagendra/b2b-discovery-call</a>
-    </p>
-    <p style="margin-top: 30px;">
-      Thanks & Regards,<br>
-      <strong>Nagendra Mishra</strong><br>
-      Director | B2B Growth Hub<br>
-      Mo: +44 7913 027482<br>
-      Email: <a href="mailto:nagendra@b2bgrowthexpo.com">nagendra@b2bgrowthexpo.com</a><br>
-      <a href="https://www.b2bgrowthexpo.com" target="_blank">www.b2bgrowthexpo.com</a>
-    </p>
-    <p style="font-size: 13px; color: #888;">
-      If you don’t want to hear from me again, please let me know.
-    </p>
-  </body>
-</html>
+# --- COLORS ---
+RED = {"red": 1.0, "green": 0.0, "blue": 0.0}
+NEON_SKY_BLUE = {"red": 0.0, "green": 1.0, "blue": 1.0}
+YELLOW_RGB = {"red": 1.0, "green": 1.0, "blue": 0.0}
+
+# --- EMAIL SIGNATURE ---
+HTML_SIGNATURE = """
+<p>If you would like to schedule a meeting with me,<br>
+please use the link below:<br>
+<a href="https://tidycal.com/nagendra/b2b-discovery-call" target="_blank">https://tidycal.com/nagendra/b2b-discovery-call</a></p>
+<p style="margin-top: 30px;">
+Thanks & Regards,<br>
+<strong>Nagendra Mishra</strong><br>
+Director | B2B Growth Hub<br>
+Mo: +44 7913 027482<br>
+Email: <a href="mailto:nagendra@b2bgrowthexpo.com">nagendra@b2bgrowthexpo.com</a><br>
+<a href="https://www.b2bgrowthexpo.com" target="_blank">www.b2bgrowthexpo.com</a>
+</p>
+<p style="font-size: 13px; color: #888;">
+If you don’t want to hear from me again, please let me know.
+</p>
 """
 
-# --- FUNCTIONS ---
-def send_email(to_email, name, show):
+# --- FOLLOW-UP EMAIL TEMPLATES ---
+FOLLOWUP_BODIES = [
+    """<p>Thank you for submitting your interest to participate as a Speaker at the <strong>{show}</strong> B2B Growth Expo.</p>
+<p>To proceed with your application, we request you to register using the URL below:<br>
+<a href="https://b2bgrowthexpo.com/speakers-registration/">https://b2bgrowthexpo.com/speakers-registration/</a></p>
+<p>Please confirm once you have registered, and feel free to ask if you need any clarification.</p>""",
+
+    """<p>Dear {name},</p>
+<p>This is to follow up on your registration for the Speaking opportunity.<br>
+Did you manage to register? If not, do you need any more information?</p>""",
+
+    """<p>Dear {name},</p>
+<p>I understand that sometimes, interest is expressed out of curiosity; however, it is not a burning desire.</p>
+<p>If that is the case with you, then we can understand why you still haven't registered.</p>
+<p>I do not want to flood your inbox with unnecessary messages. Can you please confirm if you are still looking to pursue this?</p>""",
+
+    """<p>Dear {name},</p>
+<p>Without sounding too rude, we are eager to onboard you, but given the very time-sensitive nature of the business, we do not want to waste our time on unnecessary follow-ups.</p>
+<p>I request you to kindly save my time and respond in a simple YES / NO to cut to the chase.</p>"""
+]
+
+# --- UTILITY FUNCTIONS ---
+def is_yellow(color):
+    return round(color.get("red", 0), 1) == 1.0 and round(color.get("green", 0), 1) == 1.0 and round(color.get("blue", 0), 1) == 0.0
+
+def get_row_color(service, row_index):
+    result = service.spreadsheets().get(
+        spreadsheetId=sheet_id,
+        ranges=[f"{SHEET_TAB}!A{row_index + 1}"],
+        fields="sheets.data.rowData.values.userEnteredFormat.backgroundColor"
+    ).execute()
     try:
-        # Create the email
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"Invitation to Speak at {show}"
-        msg["From"] = formataddr(("Nagendra Mishra", EMAIL_SENDER))
-        msg["To"] = to_email
+        return result['sheets'][0]['data'][0]['rowData'][0]['values'][0]['userEnteredFormat']['backgroundColor']
+    except:
+        return {}
 
-        html_content = HTML_TEMPLATE.format(name=name, show=show)
-        msg.attach(MIMEText(html_content, "html"))
-
-        # Convert message to full MIME string
-        raw_message = msg.as_string()
-
-        # --- SMTP: Send the email ---
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-            server.send_message(msg)
-            print(f"✅ Email sent to {name} at {to_email}")
-
-        # --- IMAP: Save to "Sent" folder ---
-        imap = imaplib.IMAP4_SSL("mail.b2bgrowthexpo.com")
-        imap.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        imap.append("INBOX.Sent", "", imaplib.Time2Internaldate(time.time()), raw_message.encode("utf8"))
-        imap.logout()
-        print("📩 Email saved to Sent folder")
-        return True
-
-    except Exception as e:
-        print(f"❌ Failed to send/save email to {to_email}: {e}")
-        return False
-
-    except Exception as e:
-        print(f"❌ Failed to send/save email to {to_email}: {e}")
-
-def color_row(row_index, color):
-    service = build("sheets", "v4", credentials=creds)
-    body = {
+def update_color(service, row_index, color):
+    service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={
         "requests": [{
             "repeatCell": {
                 "range": {
@@ -129,136 +92,125 @@ def color_row(row_index, color):
                     "startRowIndex": row_index,
                     "endRowIndex": row_index + 1
                 },
-                "cell": {
-                    "userEnteredFormat": {
-                        "backgroundColor": color
-                    }
-                },
+                "cell": {"userEnteredFormat": {"backgroundColor": color}},
                 "fields": "userEnteredFormat.backgroundColor"
             }
         }]
-    }
-    service.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body=body).execute()
-    print(f"🎨 Colored row {row_index + 1}")
+    }).execute()
 
-# --- PROCESS EACH ROW ---
-rows = sheet.get_all_records()
-def get_column_index(column_name):
-    header_row = sheet.row_values(1)
-    return header_row.index(column_name) + 1  # 1-based index
+def is_24hrs_passed(timestamp_str):
+    try:
+        return (datetime.now() - datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")) >= timedelta(hours=24)
+    except:
+        return True
 
-def get_col_letter(col_idx):
-    result = ""
-    while col_idx >= 0:
-        result = chr(col_idx % 26 + 65) + result
-        col_idx = col_idx // 26 - 1
-    return result
-  
+def send_followup_email(to_email, subject, html_body):
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = formataddr(("Nagendra Mishra", EMAIL_SENDER))
+        msg["To"] = to_email
+        msg.attach(MIMEText(html_body, "html"))
+        raw_msg = msg.as_string()
+
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.send_message(msg)
+
+        imap = imaplib.IMAP4_SSL(SMTP_SERVER)
+        imap.login(EMAIL_SENDER, EMAIL_PASSWORD)
+        imap.append("INBOX.Sent", "", imaplib.Time2Internaldate(time.time()), raw_msg.encode("utf8"))
+        imap.logout()
+        print(f"✅ Sent: {to_email}")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to send email to {to_email}: {e}")
+        return False
+
+# --- MAIN PROCESSING ---
 def process_batches():
     all_rows = sheet.get_all_values()
     if len(all_rows) < 2:
-        print("⚠️ Sheet is empty or only contains headers.")
+        print("⚠️ No data.")
         return
 
     header = all_rows[0]
-    data_rows = all_rows[1:]
-    status_col_index = header.index("Status") # 0-based
-    total_rows = len(data_rows)
+    data = all_rows[1:]
+    service = build("sheets", "v4", credentials=creds)
 
-    for batch_start in range(0, total_rows, 100):
-        batch_end = min(batch_start + 100, total_rows)
-        print(f"\n📦 Processing rows {batch_start + 2} to {batch_end + 1}")
-        batch = data_rows[batch_start:batch_end]
-        print(f"🔢 Batch size: {len(batch)}")
+    status_idx = header.index("Status")
+    ts_idx = header.index("Follow-up Timestamp") if "Follow-up Timestamp" in header else len(header)
 
-        status_updates = []
-        format_requests = []
+    if "Follow-up Timestamp" not in header:
+        sheet.update_cell(1, ts_idx + 1, "Follow-up Timestamp")
 
-        for i, row in enumerate(batch, start=batch_start + 2):
-            padded_row = (row + [""] * len(header))[:len(header)]
-            row_data = dict(zip(header, padded_row))
+    for i, row in enumerate(data, start=2):
+        padded = row + [""] * (len(header) + 2)
+        name = padded[header.index("First_Name")].strip()
+        email = padded[header.index("Email")].strip()
+        show = padded[header.index("Show")].strip()
+        response = padded[header.index("Email-Response")].strip().lower()
+        status = padded[status_idx].strip()
+        last_ts = padded[ts_idx].strip()
 
-            response = row_data.get("Email-Response", "").strip().lower()
-            email = row_data.get("Email", "").strip()
-            name = row_data.get("First_Name", "").strip()
-            show = row_data.get("Show", "").strip()
-            status = row_data.get("Status", "").strip().lower()
+        # Handle "Action Required"
+        if response == "action required" and status.lower() != "action required":
+            current_color = get_row_color(service, i - 1)
+            if current_color != {"red": 0.29, "green": 0.53, "blue": 0.91}:
+                update_color(service, i - 1, {"red": 0.29, "green": 0.53, "blue": 0.91})  # Blue
+            sheet.update_cell(i, status_idx + 1, "Action Required")
+            continue
 
-            print(f"[{i}] {response} | {email} | {name} | {show}")
-            if not email:
-                print(f"⚠️ Missing email at row {i}, skipping.")
-                continue
+        # Handle "Offer Rejected"
+        if response == "offer rejected" and status.lower() != "offer rejected":
+            current_color = get_row_color(service, i - 1)
+            if current_color != RED:
+                update_color(service, i - 1, RED)
+            sheet.update_cell(i, status_idx + 1, "Offer Rejected")
+            continue
 
-            if response == "interested" and status != "email sent":
-                if send_email(email, name, show):
-                    status_updates.append((i, "Email Sent"))
+        # Skip if no email or not interested
+        if not email or response != "interested":
+            continue
 
-            elif response == "action required" and status != "action required":
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {
-                            "sheetId": sheet._properties['sheetId'],
-                            "startRowIndex": i - 1,
-                            "endRowIndex": i
-                        },
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": ROW_COLOR_ACTION_REQUIRED
-                            }
-                        },
-                        "fields": "userEnteredFormat.backgroundColor"
-                    }
-                })
+        color = get_row_color(service, i - 1)
+        if "email sent -1" in status.lower() and is_yellow(color):
+            print(f"🟡 Row {i} turned yellow. Halting.")
+            continue
 
-            elif response == "offer rejected" and status != "offer rejected":
-                format_requests.append({
-                    "repeatCell": {
-                        "range": {
-                            "sheetId": sheet._properties['sheetId'],
-                            "startRowIndex": i - 1,
-                            "endRowIndex": i
-                        },
-                        "cell": {
-                            "userEnteredFormat": {
-                                "backgroundColor": ROW_COLOR_OFFER_REJECTED
-                            }
-                        },
-                        "fields": "userEnteredFormat.backgroundColor"
-                    }
-                })
+        # Determine follow-up index
+        followup_index = -1
+        if status.lower().startswith("email sent -"):
+            try:
+                followup_index = int(status.lower().split("-")[-1])
+            except:
+                followup_index = -1
+        if followup_index == -1:
+            followup_index = 0
+        if followup_index >= 4 or not is_24hrs_passed(last_ts):
+            continue
 
-        if status_updates:
-            col_letter = get_col_letter(status_col_index)
-            data = [{
-                "range": f"{SHEET_TAB}!{col_letter}{row_num}",
-                "values": [[status_text]]
-            } for row_num, status_text in status_updates]
+        html_body = FOLLOWUP_BODIES[followup_index].format(name=name, show=show) + HTML_SIGNATURE
+        subject = f"Speaker Follow-Up – {show}"
 
-            service = build("sheets", "v4", credentials=creds)
-            service.spreadsheets().values().batchUpdate(
-                spreadsheetId=sheet_id,
-                body={"valueInputOption": "USER_ENTERED", "data": data}
-            ).execute()
-            print(f"📝 Updated {len(status_updates)} status cells")
-            print(f"✅ Status column updated for rows: {[row_num for row_num, _ in status_updates]}")
+        if send_followup_email(email, subject, html_body):
+            new_status = f"Email Sent -{followup_index + 1}" if followup_index < 3 else "All Followups Done"
+            sheet.update_cell(i, status_idx + 1, new_status)
+            sheet.update_cell(i, ts_idx + 1, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-        if format_requests:
-            service = build("sheets", "v4", credentials=creds)
-            service.spreadsheets().batchUpdate(
-                spreadsheetId=sheet_id,
-                body={"requests": format_requests}
-            ).execute()
-            print(f"🎨 Formatted {len(format_requests)} rows")
+            if followup_index == 0:
+                if is_yellow(color):
+                    update_color(service, i - 1, {})  # Remove yellow
+                update_color(service, i - 1, NEON_SKY_BLUE)
+            elif followup_index == 3:
+                update_color(service, i - 1, RED)
 
-        time.sleep(2)  # Prevent rate limit
-
-# --- Replace this in your while loop ---
 while True:
-    print("⏳ Starting automation run...")
+    print("🔁 Running automation...")
     try:
         process_batches()
-        print("✅ All batches processed. Sleeping for 2 hours...\n")
+        print("✅ Run complete. Sleeping 2 hours...\n")
     except Exception as e:
-        print(f"❌ Error during run: {e}")
+        print(f"❌ Automation error: {e}")
     time.sleep(7200)
-
