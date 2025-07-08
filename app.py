@@ -213,4 +213,4 @@ while True:
         print("✅ Run complete. Sleeping 2 hours...\n")
     except Exception as e:
         print(f"❌ Automation error: {e}")
-    time.sleep(7200)
+    time.sleep(43200)
